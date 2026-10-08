@@ -1,0 +1,9 @@
+# CUDA 模块构建产物
+build/
+*.nsys-rep
+*.sqlite
+
+# PyTorch 扩展缓存
+06_pytorch/**/_build/
+06_pytorch/**/__pycache__/
+__pycache__/

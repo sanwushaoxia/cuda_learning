@@ -40,7 +40,7 @@ int main() {
     for (int i = 0; i < N; ++i) {
         if (h_out[i] != a * (float)i + 1.0f) { errors++; }
     }
-    printf("saxpy N=%d: %s\n", N, errors == 0 ? "全部元素正确 ✓" : "存在错误!");
+    printf("saxpy N=%d: %s\n", N, errors == 0 ? "all elements OK" : "FAILED");
 
     cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);
     free(h_x); free(h_y); free(h_out);

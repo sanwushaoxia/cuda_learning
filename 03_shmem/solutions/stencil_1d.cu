@@ -59,7 +59,7 @@ int main() {
     int errors = 0;
     for (int i = RADIUS; i < N - RADIUS; ++i)
         if (h_out[i] != 3.0f) errors++;
-    printf("stencil_1d N=%d: 内部元素 %s\n", N, errors == 0 ? "全部 = 3 ✓" : "存在错误!");
+    printf("stencil_1d N=%d: interior %s\n", N, errors == 0 ? "interior all == 3 OK" : "FAILED");
 
     cudaFree(d_in); cudaFree(d_out);
     free(h_in); free(h_out);

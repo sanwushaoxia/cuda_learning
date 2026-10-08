@@ -10,7 +10,8 @@
 #include <stdlib.h>
 #include <cuda_runtime.h>
 
-// 方式一:一线程一元素,需保证 grid 覆盖全部 N
+// 方式一:一线程一元素。要求 grid_size >= (N + block_size - 1) / block_size,
+// 否则下标 i >= grid*block 的元素无人处理。
 __global__ void vector_add_one_per_thread(const float *x, const float *y, float *out, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < n) {                      // 最后一个 block 可能有越界线程,必须判断
@@ -18,7 +19,8 @@ __global__ void vector_add_one_per_thread(const float *x, const float *y, float 
     }
 }
 
-// 方式二:网格跨越循环(推荐惯用法,对任意 N 都正确)
+// 方式二:网格跨越循环。即使 grid_size < (N + block_size - 1) / block_size
+// 也能算完:每线程以 stride(=grid*block) 步进,轮流覆盖全部元素。
 __global__ void vector_add_grid_stride(const float *x, const float *y, float *out, int n) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = gridDim.x * blockDim.x;   // 线程总数
@@ -48,22 +50,32 @@ int main() {
     cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
 
-    // 3. 启动 kernel: 256 线程/block,向上取整算 block 数
+    // 3. 启动 kernel 并计时(仅 kernel,与 vector_add_serial 对比)
     const int block_size = 256;
     const int grid_size = (N + block_size - 1) / block_size;
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
     vector_add_one_per_thread<<<grid_size, block_size>>>(d_x, d_y, d_out, N);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float ms = 0;
+    cudaEventElapsedTime(&ms, start, stop);
 
-    // 4. 取回结果(kernel 启动是异步的,cudaMemcpy D2H 会隐式同步)
+    // 4. 取回结果(cudaMemcpy D2H 会隐式同步)
     cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
-    cudaDeviceSynchronize();
 
     // 5. 验证
     int errors = 0;
     for (int i = 0; i < N; ++i) {
         if (h_out[i] != 3.0f) { errors++; }
     }
-    printf("N=%d, %s\n", N, errors == 0 ? "全部元素正确 ✓" : "存在错误!");
+    printf("vector_add parallel (N=%d): %.2f ms  %s\n",
+           N, ms, errors == 0 ? "all elements OK" : "FAILED");
 
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
     cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);
     free(h_x); free(h_y); free(h_out);
     return 0;

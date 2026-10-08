@@ -11,10 +11,10 @@ __global__ void fused_affine_kernel(float w1, float w2, float bias,
 
 torch::Tensor fused_affine(torch::Tensor w1, torch::Tensor w2, torch::Tensor bias,
                            torch::Tensor x, torch::Tensor y) {
-    TORCH_CHECK(x.is_cuda() && y.is_cuda(), "x/y 必须是 CUDA tensor");
+    TORCH_CHECK(x.is_cuda() && y.is_cuda(), "x/y must be CUDA tensors");
     TORCH_CHECK(x.scalar_type() == at::kFloat && y.scalar_type() == at::kFloat,
-                "仅支持 float32");
-    TORCH_CHECK(x.sizes() == y.sizes(), "x/y 形状必须一致");
+                "float32 only");
+    TORCH_CHECK(x.sizes() == y.sizes(), "x/y shapes must match");
 
     auto out = torch::empty_like(x);
     const int n = x.numel();

@@ -24,7 +24,7 @@ int main() {
 
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
-        printf("kernel 错误: %s\n", cudaGetErrorString(err));
+        printf("kernel error: %s\n", cudaGetErrorString(err));
         return 1;
     }
     return 0;

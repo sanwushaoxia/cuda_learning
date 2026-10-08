@@ -9,8 +9,9 @@ RTX 3060 上实测验证,实测数据直接写进文档。
 
 | 依赖 | 本机版本 | 说明 |
 |------|----------|------|
-| GPU | NVIDIA GeForce RTX 3060 (12GB, sm_86) | Makefile 默认 `-arch=sm_86`,其他 GPU 请修改 |
-| CUDA Toolkit | 12.4 (`nvcc` V12.4.131) | 编译 .cu 示例 |
+| GPU | NVIDIA GeForce GTX 750 Ti (sm_50) | Makefile 默认 `-arch=sm_50`,其他 GPU 请修改 |
+| CUDA Toolkit | 11.8 | 编译 .cu 示例(Windows 经 `tools/nvcc_win.cmd`) |
+| MSVC (Windows) | VS 2019 Build Tools (v16 / MSVC 14.29) | CUDA 11.8 不兼容 VS 18；包装脚本固定用 2019 `vcvars64` |
 | Nsight Systems | 随 toolkit | `make profile` 使用 |
 | Nsight Compute | 随 toolkit | kernel 级指标分析(`ncu`) |
 | conda env | `py312` | 仅阶段六需要(PyTorch 2.6.0+cu124) |

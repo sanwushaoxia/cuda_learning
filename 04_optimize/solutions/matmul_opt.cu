@@ -98,8 +98,8 @@ int main() {
     for (int i = 0; i < N * N && errors == 0; ++i)
         if (h_C[i] != (float)N) { errors++; break; }
 
-    printf("matmul_opt (2x2 寄存器分块): %.2f ms  %s (有效 %.0f GFLOPS)\n",
-           ms, errors == 0 ? "✓" : "✗ 错误!",
+    printf("matmul_opt (2x2 reg tiling): %.2f ms  %s (eff %.0f GFLOPS)\n",
+           ms, errors == 0 ? "OK" : "FAIL",
            2.0 * N * N * N / 1e9 / (ms / 1000));
 
     cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);

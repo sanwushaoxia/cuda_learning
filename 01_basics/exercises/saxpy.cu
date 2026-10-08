@@ -14,6 +14,11 @@
 // TODO: 实现 kernel。提示: 与 vector_add_one_per_thread 几乎相同,多乘一个 a
 __global__ void saxpy_kernel(float a, const float *x, const float *y, float *out, int n) {
     // 在此写代码
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
+    for (; i < n; i += stride) {
+        out[i] = a * x[i] + y[i];
+    }
 }
 
 int main() {
@@ -30,14 +35,41 @@ int main() {
     }
 
     // TODO: 分配 device 内存 (cudaMalloc)
+
+    float *d_x, *d_y, *d_out;
+    cudaMalloc((void **)&d_x, bytes);
+    cudaMalloc((void **)&d_y, bytes);
+    cudaMalloc((void **)&d_out, bytes);
+    
     // TODO: 拷贝 h_x/h_y 到 device (cudaMemcpy)
+
+    cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
+    
     // TODO: 选择 block_size=256,计算 grid_size 并启动 kernel
+
+    int block_size = 256;
+    saxpy_kernel<<<1, block_size>>>(a, d_x, d_y, d_out, N);
+    
     // TODO: 取回 h_out,同步
+
+    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
+
     // TODO: 验证: h_out[i] 应等于 a * i + 1.0f
+
+    int errors = 0;
+    for (int i = 0; i < N; ++i) {
+        if (h_out[i] != a * i + 1.0f) { errors++; }
+    }
+    printf("saxpy: %s\n", errors == 0 ? "all elements OK" : "FAILED");
+    
     // TODO: 释放内存
 
-    (void)a; (void)h_out;   // 占位,完成后删除
-    printf("saxpy: 尚未实现\n");
+    cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);
+
+    // (void)a; (void)h_out;   // 占位,完成后删除
+    // printf("saxpy: not implemented yet\n");
     free(h_x); free(h_y); free(h_out);
     return 0;
 }

@@ -46,7 +46,7 @@ int main() {
 
     // TODO: 选择 block_size=256,启动 kernel,拷回并校验
 
-    printf("stencil_1d: 尚未实现\n");
+    printf("stencil_1d: not implemented yet\n");
     cudaFree(d_in); cudaFree(d_out);
     free(h_in); free(h_out);
     return 0;

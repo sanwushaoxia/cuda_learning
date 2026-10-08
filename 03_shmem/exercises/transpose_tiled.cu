@@ -45,7 +45,7 @@ int main() {
 
     // TODO: dim3(TILE, TILE) 启动,同步,拷回并校验 out[c][r] == in[r][c]
 
-    printf("transpose_tiled: 尚未实现\n");
+    printf("transpose_tiled: not implemented yet\n");
     cudaFree(d_in); cudaFree(d_out);
     free(h_in); free(h_out);
     return 0;

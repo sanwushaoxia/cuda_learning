@@ -95,9 +95,9 @@ int main() {
 
     float s1 = run_kernel(reduce_interleaved, d_in, N);
     float s2 = run_kernel(reduce_sequential, d_in, N);
-    printf("N=%d (期望和 %d)\n", N, N);
-    printf("  相邻配对: %.0f  %s\n", s1, s1 == (float)N ? "✓" : "✗");
-    printf("  交错配对: %.0f  %s\n", s2, s2 == (float)N ? "✓" : "✗");
+    printf("N=%d (expected sum %d)\n", N, N);
+    printf("  adjacent pairing : %.0f  %s\n", s1, s1 == (float)N ? "OK" : "FAIL");
+    printf("  sequential addr  : %.0f  %s\n", s2, s2 == (float)N ? "OK" : "FAIL");
 
     cudaFree(d_in); free(h_in);
     return 0;

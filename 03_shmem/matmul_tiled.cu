@@ -76,8 +76,8 @@ void run(void (*launch)(const float *, const float *, float *, dim3, dim3),
     int errors = 0;
     for (int i = 0; i < N * N && errors == 0; ++i)
         if (hC[i] != (float)N) { errors++; break; }
-    printf("%-12s: %8.2f ms  %s (有效 %.1f GFLOPS)\n",
-           name, ms, errors == 0 ? "✓" : "✗ 错误!",
+    printf("%-12s: %8.2f ms  %s (eff %.1f GFLOPS)\n",
+           name, ms, errors == 0 ? "OK" : "FAIL",
            2.0 * N * N * N / 1e9 / (ms / 1000));
 }
 

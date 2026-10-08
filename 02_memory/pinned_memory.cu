@@ -38,7 +38,7 @@ int main() {
     cudaEventSynchronize(stop);
     float pageable_ms;
     cudaEventElapsedTime(&pageable_ms, start, stop);
-    printf("malloc (pageable) H2D: %.2f ms/次  (%.2f GB/s)\n",
+    printf("malloc (pageable) H2D: %.2f ms/iter  (%.2f GB/s)\n",
            pageable_ms / iters, iters * bytes / 1e9 / (pageable_ms / 1000));
 
     // ---- 方式二:页锁定内存 (cudaMallocHost) ----
@@ -52,7 +52,7 @@ int main() {
     cudaEventSynchronize(stop);
     float pinned_ms;
     cudaEventElapsedTime(&pinned_ms, start, stop);
-    printf("pinned H2D           : %.2f ms/次  (%.2f GB/s)  加速比 %.1fx\n",
+    printf("pinned H2D           : %.2f ms/iter  (%.2f GB/s)  speedup %.1fx\n",
            pinned_ms / iters, iters * bytes / 1e9 / (pinned_ms / 1000),
            pageable_ms / pinned_ms);
 

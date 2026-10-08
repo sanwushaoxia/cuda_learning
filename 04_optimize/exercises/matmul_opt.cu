@@ -42,7 +42,7 @@ int main() {
     CHECK(cudaMemcpy(d_B, h_A, bytes, cudaMemcpyHostToDevice));
 
     // TODO: 启动 kernel,计时(多次取平均),校验 C[i] == N
-    printf("matmul_opt: 尚未实现\n");
+    printf("matmul_opt: not implemented yet\n");
     cudaFree(d_A); cudaFree(d_B); cudaFree(d_C);
     free(h_A); free(h_C);
     return 0;

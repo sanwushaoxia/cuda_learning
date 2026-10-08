@@ -44,7 +44,7 @@ int main() {
     for (int r = 0; r < M && errors == 0; ++r)
         for (int c = 0; c < K; ++c)
             if (h_out[c * M + r] != h_in[r * K + c]) { errors++; break; }
-    printf("transpose_naive %dx%d: %s\n", M, K, errors == 0 ? "全部元素正确 ✓" : "存在错误!");
+    printf("transpose_naive %dx%d: %s\n", M, K, errors == 0 ? "all elements OK" : "FAILED");
 
     cudaFree(d_in); cudaFree(d_out);
     free(h_in); free(h_out);

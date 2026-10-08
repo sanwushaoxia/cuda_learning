@@ -63,12 +63,12 @@ int main() {
     float ms_s = bench(read_strided, d_in, d_out);
 
     // 读 + 写 = 2 * bytes 的流量
-    printf("N=%d, 每次 kernel 读+写 %.0f MB\n", N, 2 * bytes / 1048576.0);
-    printf("  连续访问: %.3f ms  (有效带宽 %5.0f GB/s)\n",
+    printf("N=%d, each kernel R+W %.0f MB\n", N, 2 * bytes / 1048576.0);
+    printf("  contiguous: %.3f ms  (eff BW %5.0f GB/s)\n",
            ms_c, 2 * bytes / 1e9 / (ms_c / 1000));
-    printf("  跨步访问: %.3f ms  (有效带宽 %5.0f GB/s)\n",
+    printf("  strided   : %.3f ms  (eff BW %5.0f GB/s)\n",
            ms_s, 2 * bytes / 1e9 / (ms_s / 1000));
-    printf("  慢了 %.1f 倍 —— 算法没变,只是地址模式变了\n", ms_s / ms_c);
+    printf("  %.1fx slower -- same algo, different address pattern\n", ms_s / ms_c);
 
     cudaFree(d_in); cudaFree(d_out);
     return 0;

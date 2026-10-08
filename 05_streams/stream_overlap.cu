@@ -73,11 +73,11 @@ int main() {
     float ms2 = bench(2, N, h_data, d_data);
     float ms4 = bench(4, N, h_data, d_data);
 
-    printf("N=%d, pinned 内存\n", N);
-    printf("  1 流(串行)   : %7.2f ms  (校验 %s)\n", ms1, bad == 0 ? "✓" : "✗");
-    printf("  2 流(流水线) : %7.2f ms\n", ms2);
-    printf("  4 流(流水线) : %7.2f ms\n", ms4);
-    printf("  流水线让传输与计算重叠,接近两者较大值而非三者相加\n");
+    printf("N=%d, pinned memory\n", N);
+    printf("  1 stream (serial) : %7.2f ms  (check %s)\n", ms1, bad == 0 ? "OK" : "FAIL");
+    printf("  2 streams (pipe)  : %7.2f ms\n", ms2);
+    printf("  4 streams (pipe)  : %7.2f ms\n", ms4);
+    printf("  pipeline overlaps copy+compute (~max, not sum)\n");
 
     CHECK(cudaFree(d_data));
     CHECK(cudaFreeHost(h_data));

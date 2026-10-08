@@ -47,7 +47,7 @@ int main() {
     for (int r = 0; r < N && errors == 0; ++r)
         for (int c = 0; c < N; ++c)
             if (h_out[c * N + r] != h_in[r * N + c]) { errors++; break; }
-    printf("transpose_tiled %dx%d: %s\n", N, N, errors == 0 ? "全部元素正确 ✓" : "存在错误!");
+    printf("transpose_tiled %dx%d: %s\n", N, N, errors == 0 ? "all elements OK" : "FAILED");
 
     cudaFree(d_in); cudaFree(d_out);
     free(h_in); free(h_out);

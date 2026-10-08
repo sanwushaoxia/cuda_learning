@@ -28,7 +28,7 @@ int main() {
     // ---- 显存分配与释放 ----
     float *d_data;
     CHECK(cudaMalloc((void **)&d_data, bytes));
-    printf("已分配 %.0f MB 显存\n", bytes / 1048576.0);
+    printf("Allocated %.0f MB device memory\n", bytes / 1048576.0);
 
     // ---- H2D 传输计时 ----
     cudaEventRecord(start);
@@ -37,7 +37,7 @@ int main() {
     cudaEventSynchronize(stop);
     float h2d_ms;
     cudaEventElapsedTime(&h2d_ms, start, stop);
-    printf("H2D: %.2f ms  (有效带宽 %.2f GB/s)\n",
+    printf("H2D: %.2f ms  (effective BW %.2f GB/s)\n",
            h2d_ms, bytes / 1e9 / (h2d_ms / 1000));
 
     // ---- D2H 传输计时 ----
@@ -47,7 +47,7 @@ int main() {
     cudaEventSynchronize(stop);
     float d2h_ms;
     cudaEventElapsedTime(&d2h_ms, start, stop);
-    printf("D2H: %.2f ms  (有效带宽 %.2f GB/s)\n",
+    printf("D2H: %.2f ms  (effective BW %.2f GB/s)\n",
            d2h_ms, bytes / 1e9 / (d2h_ms / 1000));
 
     // ---- kernel 计时对照:拷贝 256MB 的耗时 vs 计算它多快 ----
@@ -57,7 +57,7 @@ int main() {
     cudaEventSynchronize(stop);
     float memset_ms;
     cudaEventElapsedTime(&memset_ms, start, stop);
-    printf("设备内 memset 同样 256MB 只需 %.2f ms —— 显存带宽远高于 PCIe\n", memset_ms);
+    printf("device memset same 256MB: %.2f ms -- device BW >> PCIe\n", memset_ms);
 
     cudaFree(d_data);
     free(h_data);

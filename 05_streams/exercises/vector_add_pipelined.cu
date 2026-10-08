@@ -40,6 +40,6 @@ int main() {
     // TODO: 整体计时(cudaEvent),并统计流数 1 vs 2 的耗时
     // TODO: 校验 h_out 全为 3.0f
 
-    printf("vector_add_pipelined: 尚未实现\n");
+    printf("vector_add_pipelined: not implemented yet\n");
     return 0;
 }

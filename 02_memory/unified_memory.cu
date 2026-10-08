@@ -47,7 +47,7 @@ int main() {
     for (int i = 0; i < N; ++i) {
         if (data[i] != 2.0f) errors++;
     }
-    printf("unified memory N=%d: %s\n", N, errors == 0 ? "全部元素正确 ✓" : "存在错误!");
+    printf("unified memory N=%d: %s\n", N, errors == 0 ? "all elements OK" : "FAILED");
 
     CHECK(cudaFree(data));
     return 0;

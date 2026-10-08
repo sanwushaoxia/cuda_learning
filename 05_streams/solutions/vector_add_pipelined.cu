@@ -78,8 +78,8 @@ int main() {
     for (int i = 0; i < N; ++i) if (h_out[i] != 3.0f) bad2++;
 
     printf("N=%d\n", N);
-    printf("  单流     : %7.2f ms  (校验 %s)\n", ms1, bad1 == 0 ? "✓" : "✗");
-    printf("  双流流水 : %7.2f ms  (校验 %s)\n", ms2, bad2 == 0 ? "✓" : "✗");
+    printf("  1 stream : %7.2f ms  (check %s)\n", ms1, bad1 == 0 ? "OK" : "FAIL");
+    printf("  2-stream pipe : %7.2f ms  (check %s)\n", ms2, bad2 == 0 ? "OK" : "FAIL");
 
     cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);
     cudaFreeHost(h_x); cudaFreeHost(h_y); cudaFreeHost(h_out);

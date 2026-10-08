@@ -87,9 +87,9 @@ int main() {
     float h_out;
     CHECK(cudaMemcpy(&h_out, d_out, sizeof(float), cudaMemcpyDeviceToHost));
 
-    printf("N=%d, 期望和 %d\n", N, N);
-    printf("warp shuffle 归约: %.0f  %s\n", h_out, h_out == (float)N ? "✓" : "✗");
-    printf("平均 %.3f ms/次 (有效带宽 %.0f GB/s)\n",
+    printf("N=%d, expected sum %d\n", N, N);
+    printf("warp shuffle reduce: %.0f  %s\n", h_out, h_out == (float)N ? "OK" : "FAIL");
+    printf("avg %.3f ms/iter (eff BW %.0f GB/s)\n",
            total_ms / iters, bytes / 1e9 / (total_ms / iters / 1000));
 
     cudaFree(d_in); cudaFree(d_out); free(h_in);

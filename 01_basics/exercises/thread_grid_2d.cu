@@ -15,13 +15,31 @@
 //       为了避免刷屏,只在 row % 4 == 0 && col % 4 == 0 时打印
 __global__ void print_coords_2d(int rows, int cols) {
     // 在此写代码: 计算 row / col,判断边界,打印
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row < rows && col < cols &&
+        row % 4 == 0 && col % 4 == 0) {
+        printf("block(%d,%d) thread(%d,%d) -> global(%d,%d)\n", blockIdx.y, blockIdx.x, threadIdx.y, threadIdx.x, row, col);
+    }
 }
 
 int main() {
     const int rows = 8, cols = 8;
     // TODO: 用 dim3 配置 2x2 线程/block(需要 4x4 个 block),
     //       启动 print_coords_2d,然后同步并检查错误
-    (void)rows; (void)cols;   // 占位,完成后删除
-    printf("thread_grid_2d: 尚未实现\n");
+
+    dim3 block(2, 2);
+    dim3 grid((cols + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
+
+    print_coords_2d<<<grid, block>>>(rows, cols);
+    cudaDeviceSynchronize();
+    cudaError_t error = cudaGetLastError();
+    if (error != cudaSuccess) {
+        printf("Error: %s\n", cudaGetErrorString(error));
+        return 1;
+    }
+
+    // (void)rows; (void)cols;   // 占位,完成后删除
+    // printf("thread_grid_2d: not implemented yet\n");
     return 0;
 }

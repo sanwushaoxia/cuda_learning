@@ -66,9 +66,9 @@ int main() {
     float graph_ms;
     cudaEventElapsedTime(&graph_ms, start, stop);
 
-    printf("%d 个小 kernel/次, 重放 10 次:\n", STAGES);
-    printf("  朴素逐个 launch : %7.2f ms\n", naive_ms);
-    printf("  CUDA Graph      : %7.2f ms  (省下 %0.f%% launch 开销)\n",
+    printf("%d small kernels/run, replay x10:\n", STAGES);
+    printf("  naive per-launch : %7.2f ms\n", naive_ms);
+    printf("  CUDA Graph      : %7.2f ms  (saved %0.f%% launch overhead)\n",
            graph_ms, 100 * (1 - graph_ms / naive_ms));
 
     CHECK(cudaGraphExecDestroy(graph_exec));

@@ -46,7 +46,7 @@ int main() {
     // TODO: 用 dim3(32, 32) 配置二维 grid/block 启动 kernel
     // TODO: 拷回 h_out 并校验 h_out[c * M + r] == h_in[r * K + c]
 
-    printf("transpose_naive: 尚未实现\n");
+    printf("transpose_naive: not implemented yet\n");
     cudaFree(d_in); cudaFree(d_out);
     free(h_in); free(h_out);
     return 0;

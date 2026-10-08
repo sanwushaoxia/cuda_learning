@@ -15,9 +15,9 @@ __global__ void saxpy_kernel(float a, const float *x, const float *y, float *out
 }
 
 torch::Tensor saxpy(torch::Tensor a, torch::Tensor x, torch::Tensor y) {
-    TORCH_CHECK(x.is_cuda() && y.is_cuda(), "x/y 必须是 CUDA tensor");
-    TORCH_CHECK(x.scalar_type() == at::kFloat, "仅支持 float32");
-    TORCH_CHECK(x.sizes() == y.sizes(), "x/y 形状必须一致");
+    TORCH_CHECK(x.is_cuda() && y.is_cuda(), "x/y must be CUDA tensors");
+    TORCH_CHECK(x.scalar_type() == at::kFloat, "float32 only");
+    TORCH_CHECK(x.sizes() == y.sizes(), "x/y shapes must match");
 
     auto out = torch::empty_like(x);
     const int n = x.numel();
@@ -44,7 +44,7 @@ __global__ void fused_kernel(float a, float b, const float *x, float *y, int n) 
 
 torch::Tensor fused_saxpy(torch::Tensor a, torch::Tensor b,
                           torch::Tensor x, torch::Tensor y) {
-    TORCH_CHECK(x.is_cuda() && y.is_cuda(), "x/y 必须是 CUDA tensor");
+    TORCH_CHECK(x.is_cuda() && y.is_cuda(), "x/y must be CUDA tensors");
     auto out = torch::empty_like(x);
     const int n = x.numel();
     fused_kernel<<<(n + 255) / 256, 256, 0, at::cuda::getCurrentCUDAStream()>>>(

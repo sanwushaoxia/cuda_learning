@@ -32,24 +32,25 @@ int main() {
     cudaMalloc((void **)&d_x, bytes);
     cudaMalloc((void **)&d_y, bytes);
     cudaMalloc((void **)&d_out, bytes);
+    cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
 
-    // 计时:数据传输 + 单线程 kernel
+    // 仅计时 kernel(与 vector_add 对比;不含 H2D/D2H)
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     cudaEventRecord(start);
-
-    cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
     add_serial<<<1, 1>>>(d_x, d_y, d_out, N);
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
-
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     float ms = 0;
     cudaEventElapsedTime(&ms, start, stop);
-    printf("单线程 kernel (N=%d): %.2f ms —— 正确但完全没有利用并行\n", N, ms);
 
+    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    printf("vector_add serial 1-thread (N=%d): %.2f ms -- correct but not parallel\n", N, ms);
+
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
     cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);
     free(h_x); free(h_y); free(h_out);
     return 0;

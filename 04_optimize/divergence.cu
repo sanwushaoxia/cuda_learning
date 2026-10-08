@@ -71,8 +71,8 @@ int main() {
     CHECK(cudaMalloc((void **)&d_out, bytes));
     CHECK(cudaMemset(d_in, 1, bytes));
 
-    printf("  发散分支(线程交替): %.3f ms\n", bench(divergent, d_in, d_out));
-    printf("  对齐分支(warp 整齐): %.3f ms\n", bench(warp_aligned, d_in, d_out));
+    printf("  divergent (thread alternate): %.3f ms\n", bench(divergent, d_in, d_out));
+    printf("  warp-aligned branch       : %.3f ms\n", bench(warp_aligned, d_in, d_out));
 
     cudaFree(d_in); cudaFree(d_out);
     return 0;

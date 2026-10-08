@@ -46,11 +46,11 @@ int main() {
     cudaGetDevice(&device);
     cudaGetDeviceProperties(&prop, device);
 
-    printf("%s: 每 SM 最多 %d 线程 (%d warps), 共 %d SM\n\n",
+    printf("%s: max %d threads/SM (%d warps), %d SMs\n\n",
            prop.name, prop.maxThreadsPerMultiProcessor,
            prop.maxThreadsPerMultiProcessor / 32, prop.multiProcessorCount);
 
-    printf("%-10s %-12s %-10s %-12s\n", "block", "grid", "耗时ms", "有效GB/s");
+    printf("%-10s %-12s %-10s %-12s\n", "block", "grid", "ms", "GB/s");
     for (int block_size = 32; block_size <= 1024; block_size *= 2) {
         // 固定总线程规模,只变 block 形状
         const int total_threads = N / 4;
@@ -72,7 +72,7 @@ int main() {
         cudaEventSynchronize(stop);
         float ms; cudaEventElapsedTime(&ms, start, stop);
 
-        printf("%-10d %-12d %-10.3f %-12.0f (理论占用 %.0f%%)\n",
+        printf("%-10d %-12d %-10.3f %-12.0f (theo occupancy %.0f%%)\n",
                block_size, grid_size, ms, 2 * bytes / 1e9 / (ms / 1000),
                occupancy * 100);
     }

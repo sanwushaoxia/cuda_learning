@@ -77,10 +77,10 @@ int main() {
     float dep_ms;
     cudaEventElapsedTime(&dep_ms, start, stop);
 
-    printf("单 kernel 约 %.2f ms\n", serial_ms / 2);
-    printf("  同流串行     : %7.2f ms (两倍)\n", serial_ms);
-    printf("  双流并发     : %7.2f ms (单 kernel 未能占满 SM 时更快)\n", parallel_ms);
-    printf("  跨流依赖执行 : %7.2f ms (WaitEvent 保证顺序)\n", dep_ms);
+    printf("single kernel ~%.2f ms\n", serial_ms / 2);
+    printf("  same-stream serial : %7.2f ms (2x)\n", serial_ms);
+    printf("  dual-stream concurrent : %7.2f ms (faster if 1 kernel underfills SM)\n", parallel_ms);
+    printf("  cross-stream dependent : %7.2f ms (WaitEvent orders)\n", dep_ms);
 
     CHECK(cudaStreamDestroy(s1));
     CHECK(cudaStreamDestroy(s2));

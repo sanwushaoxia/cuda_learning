@@ -49,7 +49,8 @@ int main() {
     // TODO: 选择 block_size=256,计算 grid_size 并启动 kernel
 
     int block_size = 256;
-    saxpy_kernel<<<1, block_size>>>(a, d_x, d_y, d_out, N);
+    int grid_size = (N + block_size - 1) / block_size;
+    saxpy_kernel<<<grid_size, block_size>>>(a, d_x, d_y, d_out, N);
     
     // TODO: 取回 h_out,同步
 

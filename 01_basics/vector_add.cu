@@ -74,6 +74,26 @@ int main() {
     printf("vector_add parallel (N=%d): %.2f ms  %s\n",
            N, ms, errors == 0 ? "all elements OK" : "FAILED");
 
+    cudaMemset(d_out, 0, bytes);
+           
+    cudaEventRecord(start);
+    vector_add_grid_stride<<<1, block_size>>>(d_x, d_y, d_out, N);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    ms = 0;
+    cudaEventElapsedTime(&ms, start, stop);
+
+    // 4. 取回结果(cudaMemcpy D2H 会隐式同步)
+    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+
+    // 5. 验证
+    errors = 0;
+    for (int i = 0; i < N; ++i) {
+        if (h_out[i] != 3.0f) { errors++; }
+    }
+    printf("vector_add parallel (N=%d): %.2f ms  %s\n",
+           N, ms, errors == 0 ? "all elements OK" : "FAILED");
+
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
     cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);

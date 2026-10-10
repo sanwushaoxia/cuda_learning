@@ -56,6 +56,27 @@ int main() {
            pinned_ms / iters, iters * bytes / 1e9 / (pinned_ms / 1000),
            pageable_ms / pinned_ms);
 
+    cudaEventRecord(start);
+    for (int i = 0; i < iters; ++i)
+        CHECK(cudaMemcpy(h_pageable, d_data, bytes, cudaMemcpyDeviceToHost));
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    pageable_ms = 0;
+    cudaEventElapsedTime(&pageable_ms, start, stop);
+    printf("malloc (pageable) D2H: %.2f ms/iter  (%.2f GB/s)\n",
+            pageable_ms / iters, iters * bytes / 1e9 / (pageable_ms / 1000));
+
+    cudaEventRecord(start);
+    for (int i = 0; i < iters; ++i)
+        CHECK(cudaMemcpy(h_pinned, d_data, bytes, cudaMemcpyDeviceToHost));
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    pinned_ms = 0;
+    cudaEventElapsedTime(&pinned_ms, start, stop);
+    printf("pinned D2H           : %.2f ms/iter  (%.2f GB/s)  speedup %.1fx\n",
+            pinned_ms / iters, iters * bytes / 1e9 / (pinned_ms / 1000),
+            pageable_ms / pinned_ms);
+
     CHECK(cudaFreeHost(h_pinned));
     free(h_pageable);
     cudaFree(d_data);

@@ -18,6 +18,28 @@
 | 常量内存 (constant) | 显存缓存 | 所有线程 | 只读,广播访问高效 |
 | 寄存器 | SM | 单线程 | 最快,自动分配 |
 
+#### 共享内存用法要点
+
+- **作用域**:`__shared__` 仅同一 block 内线程可见、共享;不同 block 各有一份,互不可见。
+- **容量上限**:由设备决定(见 `sharedMemPerBlock`,本机常见 ~48KB/block),
+  **与 `blockDim` 无关** —— 线程开得再多,也不会自动多给共享内存。
+- **实际用量**:由你声明决定,例如 `__shared__ float s[256];` 或动态
+  `extern __shared__ float s[];` + 启动时第三个配置参数指定字节数。
+- **和 block 大小的关系**:常按“每线程一槽”自行对齐(如 256 线程配 `s[256]`),
+  这是编程约定;同一 SM 上多 block 时,每 block 占用的共享内存会一起挤占用率。
+- **同步**:block 内协作读写前/后用 `__syncthreads()`,否则有数据竞争。
+- 典型用途:tile 缓存、block 内归约、消除重复全局内存读。深入见阶段三 `03_shmem`。
+
+```c
+__global__ void demo(const float *in, float *out) {
+    __shared__ float tile[256];           // 每 block 一份,生命周期随 block
+    int t = threadIdx.x;
+    tile[t] = in[blockIdx.x * blockDim.x + t];
+    __syncthreads();                      // 等全员写完再读
+    out[...] = tile[t] + tile[(t + 1) % 256];
+}
+```
+
 ### 2. host ↔ device 传输
 
 - `cudaMalloc/cudaMemcpy/cudaFree` 是手动管理三件套;
@@ -59,3 +81,4 @@ cudaEventElapsedTime(&ms, start, stop);
 - 为什么 D2H 通常比 H2D 慢?(提示:写回 + 页表,可实测验证)
 - pinned 内存为什么快?为什么不能全用 pinned?
 - 统一内存的 kernel 性能为什么常常不如手动 cudaMemcpy?缺页发生在哪?
+- 共享内存作用域是 block;把 block 从 128 改成 1024,每 block 可用共享内存上限变吗?

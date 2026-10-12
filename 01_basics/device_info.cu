@@ -40,6 +40,15 @@ int main() {
         printf("  Clock rate         : %.2f GHz\n", prop.clockRate / 1e6);
         // warpSize: 调度与执行的基本单位,几乎总是 32
         printf("  Warp size          : %d\n", prop.warpSize);
+        // maxBlocksPerMultiProcessor: 单 SM 同时驻留的 block 数硬上限(GA10x 为 16)。
+        // cudaDeviceProperties 结构体没有这个字段,要用 cudaDeviceGetAttribute 单独查。
+        // 它与 maxThreadsPerMultiProcessor 共同决定占用率:
+        //   block 小时被它卡住(16 block × 1 warp = 16 warp,48 槽空 2/3);
+        //   block 大时被 warp 槽位卡住(1024 线程 block 占 32 槽,只能驻留 1 个)。
+        int max_blocks_per_sm = 0;
+        CUDA_CHECK(cudaDeviceGetAttribute(&max_blocks_per_sm,
+                                          cudaDevAttrMaxBlocksPerMultiprocessor, dev));
+        printf("  Max blocks/SM      : %d\n", max_blocks_per_sm);
         printf("\n");
     }
     return 0;

@@ -2,24 +2,42 @@
 
 教学向 CUDA 编程学习模块,六个阶段覆盖线程模型 → 内存层次 → 共享内存协作 →
 性能优化与 profiling → 流并发 → PyTorch 自定义扩展。每个阶段都有
-**讲解 + 可运行示例 + 练习(TODO 骨架)+ 参考解答**,所有示例在本机
-RTX 3060 上实测验证,实测数据直接写进文档。
+**讲解 + 可运行示例 + 练习(TODO 骨架)+ 参考解答**。
+
+模块支持**双机双 GPU 配置**(configs/ 下按机器分 profile),默认使用本机
+RTX 3060,可切换回 GTX 750 Ti;文末实测数据来自 RTX 3060。
 
 ## 环境准备
 
-| 依赖 | 本机版本 | 说明 |
-|------|----------|------|
-| GPU | NVIDIA GeForce GTX 750 Ti (sm_50) | Makefile 默认 `-arch=sm_50`,其他 GPU 请修改 |
-| CUDA Toolkit | 11.8 | 编译 .cu 示例(Windows 经 `tools/nvcc_win.cmd`) |
-| MSVC (Windows) | VS 2019 Build Tools (v16 / MSVC 14.29) | CUDA 11.8 不兼容 VS 18；包装脚本固定用 2019 `vcvars64` |
-| Nsight Systems | 随 toolkit | `make profile` 使用 |
-| Nsight Compute | 随 toolkit | kernel 级指标分析(`ncu`) |
-| conda env | `py312` | 仅阶段六需要(PyTorch 2.6.0+cu124) |
+| 配置项 | rtx3060(**默认**) | gtx750ti |
+|--------|--------------------|----------|
+| GPU | NVIDIA GeForce RTX 3060 (12GB, Ampere) | NVIDIA GeForce GTX 750 Ti (2GB, Maxwell) |
+| 架构 (`-arch`) | `sm_86` | `sm_50` |
+| CUDA Toolkit | 12.4 (`/usr/local/cuda`) | 11.8(`C:/Program Files/.../CUDA/v11.8`,sm_50 支持的最后版本) |
+| 系统 | Linux | Windows(经 `tools/nvcc_win.cmd` + VS 2019 BuildTools) |
+| 产物目录 | `build/rtx3060/` | `build/gtx750ti/` |
+| 阶段六(PyTorch 扩展) | ✓(conda `py312`,PyTorch 2.6.0+cu124) | 不适用 |
+
+### 切换配置
 
 ```bash
-conda activate py312        # 阶段六需要;01-05 阶段用系统 nvcc 即可
+# 方式一:命令行临时切换
+make GPU_PROFILE=gtx750ti all
+make GPU_PROFILE=gtx750ti run T=vector_add
+
+# 方式二:改 config.mk 里的 GPU_PROFILE 一行,长期生效
+```
+
+两个 profile 的编译产物在 `build/<profile>/` 下**互不覆盖**,切换后无需
+`make clean`(跨架构切换后建议清理省空间)。profile 文件在 `configs/` 下,
+换新机器时复制一份改 `GPU_ARCH` 和 `CUDA_HOME` 即可。
+
+### 环境自检
+
+```bash
 nvcc --version              # 确认 toolkit
 nvidia-smi                  # 确认驱动与 GPU
+conda activate py312        # 仅阶段六需要
 ```
 
 ## 学习路线
@@ -43,14 +61,21 @@ nvidia-smi                  # 确认驱动与 GPU
 make all                    # 编译全部示例(01-05 阶段,含练习与解答)
 make run T=vector_add       # 运行某个示例(按文件名查找)
 make profile T=coalesce     # nsys profiling + kernel/传输统计
-make clean                  # 清理 build/
+make clean                  # 清理当前 profile 的 build/<profile>/
 
-# 阶段六(PyTorch 扩展,由 Python 驱动编译):
+# 切换到 GTX 750 Ti(Windows 机):make GPU_PROFILE=gtx750ti all
+# 或长期修改 config.mk 的 GPU_PROFILE 一行
+
+# 阶段六(PyTorch 扩展,仅 rtx3060 profile,由 Python 驱动编译):
 conda activate py312
 cd 06_pytorch && python extension/demo.py
 ```
 
 ## 本机实测成绩单(RTX 3060, 2026-10,供对照)
+
+> 以下数据来自 RTX 3060 profile。GTX 750 Ti(sm_50, 2GB)平台上部分示例
+> 需要调小数据规模,阶段五的 CUDA Graph 等新特性依赖 sm_70+,仅供参考;
+> 750Ti 实测数据待补充。
 
 | 项目 | 结果 |
 |------|------|

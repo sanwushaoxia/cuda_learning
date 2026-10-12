@@ -3,16 +3,23 @@
 #   make all              编译全部示例(01-05 阶段)
 #   make run T=vector_add 编译并运行指定示例
 #   make profile T=vector_add   用 nsys 生成 profiling 报告
-#   make clean            清理 build/ 目录
+#   make clean            清理当前 profile 的 build/ 目录
 #
-# 本机环境: GTX 750 Ti (sm_50) + CUDA 11.8
+# GPU 配置:configs/ 下按机器分 profile,默认 rtx3060(Linux + sm_86 + CUDA 12.4)。
+# 切换:改 config.mk 的 GPU_PROFILE,或临时 make GPU_PROFILE=gtx750ti。
+# 各 profile 产物在 build/<profile>/ 下隔离。
+
+-include config.mk
+
+# config.mk 缺失时的兜底默认(与 configs/rtx3060.mk 一致)
+GPU_ARCH        ?= sm_86
+CUDA_HOME       ?= /usr/local/cuda
+USE_WIN_WRAPPER ?= 0
 
 NVCC      ?= nvcc
-NVCCFLAGS ?= -O3 -arch=sm_50 -std=c++17
-BUILD_DIR := build
+NVCCFLAGS ?= -O3 -arch=$(GPU_ARCH) -std=c++17
+BUILD_DIR := build/$(GPU_PROFILE)
 NSYS      ?= nsys
-# Prefer CUDA 11.8 nvcc (supports sm_50). Windows build uses tools/nvcc_win.cmd.
-CUDA_HOME ?= C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.8
 
 ifeq ($(OS),Windows_NT)
   EXE := .exe
@@ -36,11 +43,13 @@ TARGETS := $(patsubst %.cu,$(BUILD_DIR)/%$(EXE),$(SOURCES))
 
 all: $(TARGETS)
 
+ifeq ($(USE_WIN_WRAPPER),1)
 $(BUILD_DIR)/%$(EXE): %.cu
 	@$(call MKDIR_CMD,$(dir $@))
-ifeq ($(OS),Windows_NT)
 	cmd.exe //C "tools\nvcc_win.cmd $(NVCCFLAGS) $< -o $@"
 else
+$(BUILD_DIR)/%$(EXE): %.cu
+	@$(call MKDIR_CMD,$(dir $@))
 	$(NVCC) $(NVCCFLAGS) "$<" -o "$@"
 endif
 
@@ -76,11 +85,14 @@ clean:
 	@$(RM_CMD)
 
 help:
-	@echo "CUDA learning build:"
+	@echo "CUDA learning build (profile: $(GPU_PROFILE), arch: $(GPU_ARCH))"
 	@echo "  make all                  build all examples"
 	@echo "  make run T=vector_add     build and run (e.g. T=hello_world / saxpy / matmul_tiled)"
 	@echo "  make profile T=vector_add nsys profile + kernel/memcpy stats"
-	@echo "  make clean                remove build/"
+	@echo "  make clean                remove build/$(GPU_PROFILE)"
+	@echo ""
+	@echo "Switch GPU profile:"
+	@echo "  make GPU_PROFILE=gtx750ti ...   (or edit config.mk; see configs/)"
 	@echo ""
 	@echo "Available examples:"
 	@for t in $(basename $(notdir $(TARGETS))); do echo "  $$t"; done

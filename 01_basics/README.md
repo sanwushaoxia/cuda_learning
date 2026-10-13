@@ -23,6 +23,38 @@ CUDA 把并行工作组织成三级:
 int i = blockIdx.x * blockDim.x + threadIdx.x;   // 一维全局索引
 ```
 
+**blockIdx 这些变量是从哪儿来的?** `blockIdx`/`threadIdx`/`blockDim`/
+`gridDim` 是 CUDA 运行时注入的**内置变量**,无需声明、无需传参,
+kernel 内直接可读,值来自启动语句 `<<<grid_size, block_size>>>`:
+
+- `<<<65536, ...>>>` → `gridDim.x = 65536`(grid 里的 block 总数);
+- `<<<..., 256>>>` → `blockDim.x = 256`(每 block 的线程数);
+- `blockIdx.x` = 当前线程所在 block 的编号(0 ~ 65535);
+- `threadIdx.x` = 当前线程在 block 内的编号(0 ~ 255)。
+
+实现机制:GPU 上几百万线程执行**同一段代码**,但每个线程在寄存器里
+有这四个变量的私有副本(硬件 dispatch 线程时填好),于是同一表达式
+在不同线程算出不同的 `i`——**代码相同,坐标不同,各算各的**,这就是
+"一线程一元素"能铺开的机制。以 `<<<65536, 256>>>` 为例:
+
+| 线程 | blockIdx.x | threadIdx.x | i |
+|---|---|---|---|
+| block 0 的 0 号 | 0 | 0 | 0 |
+| block 0 的 255 号 | 0 | 255 | 255 |
+| block 1 的 0 号 | 1 | 0 | 256 |
+| block 5 的 3 号 | 5 | 3 | 5×256+3 = 1283 |
+
+公式含义:先跳过前面几个 block 管辖的元素(`blockIdx × 每块线程数`),
+再加块内偏移。`grid-stride` 的 `stride = gridDim.x * blockDim.x`
+同理——用内置变量反查"这次启动一共有多少线程"。三个易误解点:
+
+1. 内置变量**只在 `__global__`/`__device__` 函数里有效**,host 代码
+   用不了;host 侧想知道配置,得自己保存启动参数;
+2. `blockIdx.x` 的上限就是启动时的 grid_size−1:grid 配小了,尾部
+   元素没人算;grid 向上取整时,`i` 又可能超出 N——这正是 kernel
+   里 `if (i < n)` 边界判断存在的原因;
+3. 二维/三维启动时 y、z 分量同理,未指定的分量恒为 1(见下)。
+
 二维问题(矩阵、图像)同理扩展到 `(row, col)`:
 
 ```c
@@ -33,7 +65,72 @@ int col = blockIdx.x * blockDim.x + threadIdx.x;
 
 约定:通常 **x → 列(宽)、y → 行(高)**。
 
+三维问题(体素、stencil、3D 卷积)再扩展一个 z 分量:
+
+```c
+int x = blockIdx.x * blockDim.x + threadIdx.x;
+int y = blockIdx.y * blockDim.y + threadIdx.y;
+int z = blockIdx.z * blockDim.z + threadIdx.z;
+// 行主序一维下标: idx = (z * rows + y) * cols + x
+//                  = z * rows * cols + y * cols + x
+```
+
+三维坐标有一个绕不开的性质:硬件最终把 (x,y,z) 线性化成一个一维
+thread id 来切 warp,**x 变化最快、其次 y、最后 z**(与 C 行主序数组
+"最右下标变化最快"一致)。所以 warp 内 32 个连续线程的第一维(x)坐标
+一定是连续的——这也是"内存访问按 x 方向连续布局"能合并访存的根源
+(阶段四 `coalesce.cu` 展开)。
+
 ### 2. kernel 启动与同步
+
+#### 函数限定符:__global__ 与 __device__
+
+先分清两个函数限定符——**`__global__` 是"入口函数"(CPU 调用、GPU
+执行),`__device__` 是"GPU 内部的辅助函数"(GPU 调用、GPU 执行)**。
+两者都生成 GPU 代码,但调用方向和约束完全不同:
+
+| | `__global__` | `__device__` |
+|---|---|---|
+| 谁调用 | host(CPU),用 `<<<grid, block>>>` 启动 | device(GPU),被 kernel 或其他 `__device__` 函数调用 |
+| 怎么调用 | 启动语法,异步、无返回值 | 普通函数调用,同步返回 |
+| 返回类型 | 强制 `void` | 任意类型 |
+| 内置变量 | 可用(`threadIdx`/`blockIdx`…) | 同样可用(继承当前线程的坐标) |
+| 典型用途 | kernel 本身 | kernel 抽出的辅助函数、数学函数 |
+
+把"加一个元素"抽成辅助函数的例子:
+
+```c
+__device__ float add_one(float a, float b) {   // GPU 内部的普通函数
+    return a + b;                              // 有返回值,同步
+}
+
+__global__ void vector_add_one_per_thread(const float *x, const float *y,
+                                          float *out, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) {
+        out[i] = add_one(x[i], y[i]);          // 像普通函数一样调用
+    }
+}
+```
+
+调用方向单向:`__global__`(入口)→ `__device__`(辅助),不能倒过来。
+三个易混点:
+
+1. **`__host__` 与 `__host__ __device__`**:函数默认是 host 的(只在
+   CPU 跑);加双重修饰后同一份代码两边都能编译调用——CUDA 头文件
+   的 `min`/`max` 就这么写;
+2. **`__global__` 强制返回 void 的原因**:启动是异步的,kernel 还没
+   跑完 host 早就往下走,返回值无处可交。要传结果出来,只能写进
+   指针参数指向的显存(像上面的 `out`);
+3. **`__global__` 的调用是"排队"不是"执行"**:`kernel<<<g,b>>>(...)`
+   只是把启动命令排进 GPU 队列就返回,真正执行由硬件调度——这正是
+   下文"启动是异步的、要同步"的根源。而 `__device__` 调用是当前
+1. **`__global__` 的调用是"排队"不是"执行"**:`kernel<<<g,b>>>(...)`
+   只是把启动命令排进 GPU 队列就返回,真正执行由硬件调度——这正是
+   下文"启动是异步的、要同步"的根源。而 `__device__` 调用是当前
+   线程原地执行,和 C 函数调用一样。
+
+#### 启动语法
 
 一维(向量):
 
@@ -43,8 +140,16 @@ kernel<<<grid_size, block_size>>>(参数...);
 // grid_size : block 数,向上取整 (N + block_size - 1) / block_size
 ```
 
-kernel 启动是**异步**的:CPU 立即返回,需要 `cudaDeviceSynchronize()` 或后续
-`cudaMemcpy` 隐式等待结果。
+启动是**异步**的:CPU 立即返回,需要 `cudaDeviceSynchronize()` 或后续
+`cudaMemcpy` 隐式等待结果(哪里需要显式同步,见本节末尾)。
+
+"宜为 32 的倍数"的原理:硬件按线性 id 每 32 线程切一个 warp,block
+不是 32 的倍数时,最后一个 warp 只有一部分线程干活、其余槽位空转
+——组 3 的 block=33 就是实例:第二个 warp 只有 1 个线程在算
+(见「根因定位」)。此外,过小的 block 还会撞每 SM 最多 16 个 block
+的硬上限,驻留 warp 填不满 48 个槽位,掩盖不了访存延迟。128/256/512
+这几个常用尺寸则既能切出整 warp,又能让每 SM 驻留 warp 达到 32 以上
+(见「性能分析入门」的四组实验)。
 
 二维用 `dim3` 同时指定 x/y(未写的分量默认为 1):
 
@@ -61,11 +166,29 @@ kernel<<<grid, block>>>(rows, cols);
 
 对照 `exercises/thread_grid_2d.cu` 练习二维坐标打印。
 
+三维启动同理,`dim3` 的第三个分量是 z(未写的分量默认为 1):
+
+```c
+dim3 block(8, 8, 8);          // 每 block 8×8×8 = 512 线程
+dim3 grid((nx + block.x - 1) / block.x,
+          (ny + block.y - 1) / block.y,
+          (nz + block.z - 1) / block.z);  // 覆盖 nx×ny×nz 体素
+kernel<<<grid, block>>>(nx, ny, nz);
+```
+
+例:`nx=ny=nz=32`、`block(8,8,8)` → `grid` 为 `(4,4,4)`,共 64 个
+block、32768 个线程。三个维度的边界判断一个都不能省:
+`x < nx && y < ny && z < nz`。
+
+各维度的上限不同:x/y 最大 512、z 最大 64(grid 则是 x 最大 2³¹−1,
+y/z 最大 65535);最内层(x)负责连续数据,应让它吃满 32 的倍数,
+y/z 上放不齐的零头影响小得多。
+
 **显式同步放哪儿?** 不是"到处加",而是加在"需要看到结果的那一刻":
 
 1. **host 要读 GPU 结果(或校验/打印 device 数据)时**——在读之前必须
    `cudaDeviceSynchronize()`。典型位置:kernel 里 printf 后想在 host
-   继续(见练习 `hello_world.cu`)。
+   继续(见 `hello_world.cu`)。
 2. **检查启动错误时**——`CUDA_CHECK_LAUNCH()` 内部就是
    `cudaGetLastError()` + `cudaDeviceSynchronize()`,启动后紧接着调用,
    让异步的启动错误(如 grid/block 越界配置)当场暴露,而不是延迟到
@@ -81,7 +204,7 @@ kernel 完成。例如 `vector_add.cu` 的 kernel 之后直接 `cudaMemcpy` 拷�
 
 ### 3. 错误检查
 
-CUDA 的错误是静默的,不会抛异常。请从第一天起使用 `cuda_common.cuh` 里的
+CUDA 的错误是静默的,不会抛异常。请从第一天起使用 根目录 `cuda_common.cuh` 里的
 `CUDA_CHECK(...)` 包裹每个 API 调用,并在 kernel 启动后调用
 `CUDA_CHECK_LAUNCH()`。
 
@@ -115,11 +238,20 @@ kernel 启动后都调用;确认正确后、只做性能测量时,可只保留
 === Device 0: NVIDIA GeForce RTX 3060 ===
   Compute capability : 8.6
   SM count           : 28
+  Warp size          : 32
   Max threads/SM     : 1536      ← 48 个 warp 槽位(1536 / 32)
   Max threads/block  : 1024
-  Shared mem/block   : 48.0 KB
-  Warp size          : 32
+  Max block dims     : (1024, 1024, 64)
+  Max grid dims      : (2147483647, 65535, 65535)
   Max blocks/SM      : 16        ← cudaDevAttrMaxBlocksPerMultiprocessor
+  Regs/SM            : 65536     ← 寄存器堆:64K × 32-bit
+  Global memory      : 11.6 GB
+  L2 cache           : 2.2 MB
+  Persisting L2 max  : 1.5 MB
+  Shared mem/SM      : 100.0 KB
+  Shared mem/block   : 48.0 KB
+  Shared mem opt-in  : 99.0 KB
+  SM clock rate      : 1.78 GHz
 ```
 
 ### 1. SM 内部:1536 个线程落在哪些计算单元上
@@ -138,12 +270,13 @@ SM(共 28 个)
 
 #### warp:硬件调度的最小单位
 
-关键中间层是 **warp**:硬件把 block 的线程按**线性 thread id 切分**,
-每 32 个连续线程组成一个 warp —— warp 才是硬件调度的最小单位。
-x 分量变化最快,所以一维 block 就是 `tid 0-31` 为 warp 0、`32-63` 为
-warp 1……三维 block 先按 x 展开、再 y、再 z(详见 Programming Guide
-§2.4 的线性化公式)。同一 warp 的 32 线程**锁步**执行同一条指令
-(SIMT),这正是阶段四讲 warp divergence 和 warp shuffle 的根源。
+block 与 SM 之间还有一个关键中间层 **warp**:硬件把 block 的线程按
+**线性 thread id 切分**,每 32 个连续线程组成一个 warp —— warp 才是
+硬件调度的最小单位。x 分量变化最快,所以一维 block 就是 `tid 0-31`
+为 warp 0、`32-63` 为 warp 1……三维 block 先按 x 展开、再 y、再 z
+(详见 Programming Guide §2.4 的线性化公式)。同一 warp 的 32 线程
+**锁步**执行同一条指令(SIMT),这正是阶段四讲 warp divergence 和
+warp shuffle 的根源。
 
 "1536 threads/SM" 因此不是 1536 个线程各占一个 core,而是 **48 个 warp
 槽位**:4 个 warp 调度器各管 `48 / 4 = 12` 个 warp,从自己子块的 32 个
@@ -154,6 +287,26 @@ core 里挑可发射的指令。某个 warp 遇到访存等待时,其调度器�
 warp 编号 w0..w47 的归属:硬件按 **warp_id % 4** 轮转分配到 4 个调度器,
 所以 w0/w4/w8/… 在调度器 0 —— 同一 block 的 warp(连续编号)自然
 被摊到不同调度器上。
+
+**warp 个数与 FP32 core 个数是什么关系?** 两者分属两侧:warp 是
+线程的分组(软件/启动配置决定个数),FP32 core 是执行单元(芯片
+固定 128 个/SM),warp 里没有 FP32,FP32 也不专属某个 warp。连接
+它们的规则有三条:
+
+1. **宽度对齐**:warp 的 32 线程 = 子块的 32 个 FP32 core。一条
+   warp 的 FP32 指令发射时,32 个线程的同一个操作正好一拍铺满本
+   子块的全部 core —— 这就是 SIMT"锁步"的硬件出处,子块 32 个
+   core 的数量正是按"一次吃下一整个 warp"设计的;
+2. **轮流上岗,不占有**:warp 这次发射用本子块的 32 个 core,下次
+   发射访存指令用的是 16 个 LD/ST —— warp 按指令类型轮换使用执行
+   单元,不固定绑核;
+3. **个数靠调度撮合**:warp 总数由启动配置决定(block_size/32 向上
+   取整 × block 数,与 core 数无关),两者靠"每子块 12 warp 竞争
+   32 core"的超额订阅动态撮合 —— 一个 warp 等访存时,同子块还有
+   11 个 warp 可以上 core。
+
+一句话:warp 的**宽度**对齐子块 core 数(一拍发一条 warp 算术指令),
+warp 的**个数**与 core 数没有直接换算关系,靠调度器动态匹配。
 
 调度器与子块的对应关系,以满载(4 个子块各驻留 12 个 warp)为例:
 
@@ -204,17 +357,18 @@ warp 指令、理论 4 IPC),就得配 4 个分发单元一一对应——所以�
 
 #### 三类执行单元
 
-三层资源的归属规则:**执行端口(FP32 core、LD/ST、SFU)子块私有**,
-warp 发散只浪费自己子块的 core;**寄存器堆和共享内存/L1 是 SM 级**,
-同 SM 上逻辑无关的 block 也通过它们互相挤压;**L2 及以下是 GPU 级**,
-28 个 SM 的所有访存最终都在这里排队。
+先记住三层资源的归属规则(下文分析竞争时反复用到):**执行端口
+(FP32 core、LD/ST、SFU)子块私有**,warp 发散只浪费自己子块的 core;
+**寄存器堆和共享内存/L1 是 SM 级**,同 SM 上逻辑无关的 block 也通过
+它们互相挤压;**L2 及以下是 GPU 级**,28 个 SM 的所有访存最终都在
+这里排队。
 
-- **FP32 core(每子块 32 个)**:执行普通算术/逻辑指令——加减乘、
-  乘加 FMA、比较、位运算等。这是数量最多、通用的主力单元,一条
-  warp 指令(32 线程)正好一拍铺满 32 个 core。
-- **LD/ST 单元(每子块 16 个)**:执行访存指令——全局内存/共享内存的
-  读取与写入、寄存器与显存之间的搬运。它本身不是缓存,而是"搬运工":
-  发出地址、拆分对齐的访存请求、把数据送回寄存器堆。因为带宽只有
+- **FP32 core(每子块 32 个)**:数量最多的通用主力单元,执行加减乘、
+  乘加 FMA、比较、位运算等普通算术/逻辑指令。一条 warp 指令
+  (32 线程)正好一拍铺满 32 个 core。
+- **LD/ST 单元(每子块 16 个)**:访存指令的"搬运工"——执行全局/
+  共享内存的读取与写入、寄存器与显存之间的搬运。它本身不是缓存,
+  只负责发出地址、拆分对齐的访存请求、把数据送回寄存器堆。数量只有
   FP32 core 的一半(16 vs 32),访存密集的 kernel 常在这里排队。
 
   三点细节:
@@ -228,31 +382,30 @@ warp 发散只浪费自己子块的 core;**寄存器堆和共享内存/L1 是 SM
      职责描述(既能 load 也能 store),同一端口两种指令都过,共享
      同一份吞吐配额——load 和 store 密集时在同一组端口上互相排队。
      硬件附录也只列一个数(如 CC 8.6 每子块 16 LSU),不分开计;
-  3. **"数量不足"不会直接卡住 FP32 core**。warp 发出 load 后进入
+  3. **"数量不足"不会直接卡住 FP32 core**:warp 发出 load 后进入
      停等,调度器立刻切到别的就绪 warp 继续发 FP32——前提是有足够
-     多的驻留 warp 可切(否则延迟裸露,core 空转,见「性能分析入门」
-     的占用率分析)。LD/ST 吞吐真正饱和的场景是共享内存密集或
-     寄存器溢出(spill)大量走 local memory 的 kernel;全局内存
-     kernel 几乎总是先撞上 DRAM 带宽(L2 以下那层)。非合并访存会
-     雪上加霜:32 个地址若散落在不同扇区,LSU 要拆成多次事务,
-     占用单元的拍数成倍增加。Nsight Compute 里可观察 LSU 管线
-     利用率确认;缓解手段:向量化加载(`float4` 一条指令搬 4 个数)、
-     消除溢出、合并访存。
-- **SFU(Special Function Unit,每子块 16 个)**:执行超越函数——
-  `sin`/`cos`、`exp`/`log`、`rsqrt`/`sqrt`、常用插值等,用查表+插值的
-  硬件近似实现(几拍出结果)。`__sinf()` 这类快速内建函数走 SFU;
-  而双精度或要求精确舍入的 `sinf()` 则退化成多拍软件序列,慢得多。
+     多的驻留 warp 可切,否则延迟裸露、core 空转(见「性能分析入门」
+     的占用率分析)。LD/ST 吞吐真正饱和的场景是共享内存密集或寄存器
+     溢出(spill)大量走 local memory 的 kernel;全局内存 kernel 几乎
+     总是先撞上 DRAM 带宽(L2 以下那层)。非合并访存会雪上加霜:
+     32 个地址若散落在不同扇区,LSU 要拆成多次事务,占用单元的拍数
+     成倍增加。观测用 Nsight Compute 的 LSU 管线利用率;缓解靠三条:
+     向量化加载(`float4` 一条指令搬 4 个数)、消除溢出、合并访存。
+- **SFU(Special Function Unit,每子块 16 个)**:执行超越函数
+  (`sin`/`cos`、`exp`/`log`、`rsqrt`/`sqrt`、常用插值等),用查表+插值
+  的硬件近似实现,几拍出结果。`__sinf()` 这类快速内建函数走 SFU;
+  双精度或要求精确舍入的 `sinf()` 则退化成多拍软件序列,慢得多。
 
 ### 2. 4 个调度器之间如何"竞争"
 
-先把结论说反直觉:调度器彼此之间**几乎不竞争** —— 每个 warp 归属
-唯一的调度器,warp 不会在调度器之间流动,每个调度器也只往自己子块的
+先说反直觉的结论:调度器彼此之间**几乎不竞争**——每个 warp 归属唯一
+的调度器,warp 不会在调度器之间流动,每个调度器也只往自己子块的
 32 个 core 发射指令。调度器每周期从自己管的 12 个 warp 里挑一个就绪
 的发射(择一而发),4 个调度器**并行工作、互不干涉**,最多每周期发射
-4 条 warp 指令。它们像一个车间的 4 个组长:每人带 12 个工人,各管各的,
+4 条 warp 指令。像一个车间的 4 个组长:每人带 12 个工人,各管各的,
 不存在抢工人的问题。
 
-真正的竞争发生在**下游共享资源**上,这才是值得关注的:
+真正的竞争发生在**下游共享资源**上:
 
 - **执行端口**:32 个 FP32 core 是子块私有的,但每子块只有 16 个
   LD/ST(访存)单元和 16 个 SFU(特殊函数)单元 —— 一个子块
@@ -284,11 +437,35 @@ warp 发散只浪费自己子块的 core;**寄存器堆和共享内存/L1 是 SM
 - **SM 级缓存与 DRAM 带宽**:4 个子块的访存请求最终汇入同一个 L2/
   显存通道,这里才是全局竞争的主战场。
 
-所以调优视角是:同一 SM 上的 4 个子块靠共享寄存器堆和内存系统互相
-影响,而不靠调度器抢占。这也解释了两个常见现象 ——
+**L2 缓存和显存(DRAM)的差别**(本机 RTX 3060:L2 实测 2304 KB,
+显存 12 GB,相差 5000 倍量级):
+
+| | L2 缓存 | 显存 DRAM(GDDR6) |
+|---|---------|-------------------|
+| 本质 | SRAM,芯片上的高速缓存 | 板载显存颗粒,容量主体 |
+| 容量 | ~2.25 MB(28 个 SM 共享一个) | 12 GB |
+| 时延 | ~200 拍 | ~400-600 拍 |
+| 角色 | 所有 SM 访存的**中转站**:数据从显存进来先落 L2,再分发到各 SM 的 L1;写回也先在 L2 汇聚 | 数据的**老家**:kernel 的输入输出最终都躺在显存里 |
+
+关键理解三点:
+
+1. **L2 是"全体 SM 的共享缓存",显存是"最终存储"**。一条全局访存
+   指令先查 L1(SM 私有)→ 未命中查 L2(全 GPU 共享)→ 再未命中才
+   去显存。上一级命中的话,下面的层级根本不被打扰;
+2. **L2 是跨 SM 数据复用与通信的枢纽**。SM0 写的数、SM1 随后要读,
+   唯一的汇合点就是 L2(L1 不保证跨 SM 一致);原子操作也在 L2 附近
+   完成,这就是"全局内存竞争的主战场在 L2"的出处;
+3. **带宽利用率公式里的"显存流量"指 DRAM 侧的流量**。热数据若能
+   留在 L2 里反复使用,DRAM 流量就小于"名义流量"(3×N×4 字节),
+   实测带宽利用率可能超过 100% —— 这不是测量错误,而是 L2 在兜底。
+   30 系之后还可通过 `cudaStreamSetAttribute` 划出一块持久 L2 窗口
+   (本机上限约 1.5 MB)给反复访问的小数据集。
+
+这条规则的调优视角:同一 SM 上的 4 个子块靠共享寄存器堆和内存系统
+互相影响,而不靠调度器抢占。这也解释了两个常见现象:
 ① warp 发散只浪费自己 warp 的 core,不拖累其他调度器的 warp;
 ② 一个 block 的寄存器用量会"挤压同 SM 邻居"的驻留数量,哪怕它们
-逻辑上毫无关系。
+   逻辑上毫无关系。
 
 ### 3. block 与 SM 的关系:整体驻留,不可拆分
 
@@ -320,20 +497,20 @@ vector_add_one_per_thread<<<grid_size, block_size>>>(...);
 ```
 
 驻留容量:每 block 8 warp,SM 有 48 个 warp 槽位 → 槽位角度可放
-`48/8 = 6` 个 block;再查寄存器(kernel 每线程用量很小)、共享内存
-(此 kernel 为 0)都够 → 每个同时驻留 6 个 block(48 warp 满载,
-即"占用率 100%")。这不是估算 —— 本机用 occupancy API 实测该 kernel
+`48/8 = 6` 个 block;寄存器(kernel 每线程用量很小)和共享内存
+(此 kernel 为 0)都充裕 → 每 SM 同时驻留 6 个 block,48 warp 满载,
+即"占用率 100%"。这不是估算——本机用 occupancy API 实测该 kernel
 确实返回 6 blocks/SM,而 1024 线程的大 block kernel 只返回 1
-(`48/32 = 1.5` 取整),印证了上述公式。
+(`48/32 = 1.5` 取整),印证了公式。
 
 6 个 block × 每 block 8 warp,轮转分给 4 个调度器:每调度器
 12 个 warp,与 `48/4 = 12` 正好吻合。
 
-于是执行过程是:28 个 SM × 6 block = 168 个 block 先驻留,其余
+执行过程:28 个 SM × 6 block = 168 个 block 先驻留,其余
 65536 − 168 ≈ 65368 个 block 在队列里等;某 SM 的一个 block 跑完退出,
-分发器立刻补一个进去 —— **grid 不是一次性塞进 GPU 的,而是流水般
+分发器立刻补一个进去——**grid 不是一次性塞进 GPU 的,而是流水般
 滚动消化**。这也是为什么 grid 可以远超 GPU 容量(6.5 万个 block、
-1600 万线程都完全没问题)。
+1600 万线程都完全没问题):
 
 滚动消化的过程:
 
@@ -380,11 +557,12 @@ grid(65536 blocks)                    ← 逻辑:一次 kernel 全部工作
 
 vector_add 每元素只做 1 次加法、搬 12 字节(读 x、y 各 4 字节 +
 写 out 4 字节),是极端的带宽受限问题;但 block 太小时它会"降级"
-为延迟受限 —— 这正是四组实验展示的东西。
+为延迟受限——这正是四组实验要展示的东西。
 
 ### 2. 观测方法:怎么拿到可信的数字
 
-**测耗时**:用 `cudaEvent`(不是 host 的 clock,kernel 是异步的):
+**测耗时**:用 `cudaEvent`,不要用 host 的 clock——kernel 是异步的,
+host 计时测到的只是启动排队时间:
 
 ```c
 cudaEventRecord(start);
@@ -393,6 +571,9 @@ cudaEventRecord(stop);
 cudaEventSynchronize(stop);        // 必须同步,否则读到的是启动耗时
 cudaEventElapsedTime(&ms, start, stop);
 ```
+
+根目录 `cuda_common.cuh` 已把这套样板封装成 `CUDA_TIME` /
+`CUDA_TIME_AVG`(后者自带预热 + 多次平均),示例代码都直接用宏。
 
 三条观测纪律(本模块所有实验数据都遵守):
 
@@ -424,6 +605,24 @@ cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks, kernel, block_size, 0);
 ```
 
 四组实验换算后的完整对照(N=2^24,流量 = 3×N×4 字节 ≈ 201MB):
+
+**算例拆解**(以组 1 为例,三个数各从哪来):
+
+1. **流量**:N = 2²⁴ ≈ 1677 万个元素。kernel 读 x、读 y、写 out,
+   每元素 3 次 float(4 字节)访问,且任何线程不重复读写 →
+   流量 = 3 × N × 4 字节 = 3 × 16777216 × 4 ≈ **201 MB**。
+   别算成 3 × 3 × 4 × N:"3 次"已经包含读 x、读 y、写 out 这三个
+   数组——每个数组每元素只被碰一次,即每元素 12 字节,再乘 N。
+   写 kernel 时数一数:每个元素被**从显存读几字节、写几字节**,
+   没有重复利用就按次数累加(若某数组被读两次,才是 4 次 × 4 字节)。
+2. **耗时**:组 1 实测 0.63 ms = 0.00063 s(event 计时,不是 host
+   clock,理由见「观测方法」)。
+3. **相除**:201326592 字节 ÷ 0.00063 s ≈ 3.2 × 10¹¹ 字节/秒,
+   ÷ 1e9 ≈ **320 GB/s**。
+
+320 / 332(可达带宽上限,coalesce 实测)≈ 96%,与下表第 1 行吻合。
+注意分母必须是**纯 kernel 时间**:把 H2D 拷贝也算进耗时,得到的
+"带宽"会被传输稀释得毫无意义——这正是 event 只包住 kernel 的原因。
 
 | 组 | block | 驻留 block/SM | 限制因素 | warp 槽位利用 | 有效带宽 | 带宽利用率 | 耗时 |
 |----|-------|--------------|----------|---------------|----------|-----------|------|
@@ -491,12 +690,12 @@ cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks, kernel, block_size, 0);
    ```
 
 3. **占用率有边际收益封顶**:64 线程(67% 槽位)就能跑到
-   ~330 GB/s ≈ 可达带宽的 99%,96/128/256 全部停在 0.60ms 平台期 ——
+   ~330 GB/s ≈ 可达带宽的 99%,96/128/256 全部停在 0.60 ms 平台期——
    带宽已饱和,**性能由瓶颈资源决定,与占用率解耦**,再堆线程只是
    让访存请求排队。
 
-由 2、3 直接得到实用规则:**block 尺寸应为 32 的倍数**(消灭碎片),
-**常用 128/256/512**(都能满载,且够大以压住 16-block 上限)。
+由结论 2、3 直接得到实用规则:**block 尺寸应为 32 的倍数**(消灭
+碎片),**常用 128/256/512**(都能满载,且够大以压住 16-block 上限)。
 
 ### 5. 分析方法的普适流程
 
@@ -540,13 +739,13 @@ cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks, kernel, block_size, 0);
                                        └─────────────────────────────┘
 ```
 
-要点:**每次只改一个变量,改完立刻回到第 ② 步复测** —— 优化是闭环,
+要点:**每次只改一个变量,改完立刻回到第 ② 步复测**——优化是闭环,
 不是一次性清单。
 
 工具进阶:event 计时只能回答"多快",回答"为什么"需要 profiler:
 `make profile T=<名>`(nsys,时间线/kernel 汇总)和 `ncu`(kernel 内部
-指标,如带宽利用率、占用率、发散度)—— 见阶段四详解。本节的手工
-计算是 profiler 指标的"人肉版",先会算,再看懂工具输出。
+指标,如带宽利用率、占用率、发散度),阶段四详解。本节的手工计算
+是 profiler 指标的"人肉版"——先会算,再看懂工具输出。
 
 ---
 
@@ -558,7 +757,7 @@ cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks, kernel, block_size, 0);
 | `vector_add_serial.cu` | 反面教材:单线程 kernel 串行循环,附计时 | `make run T=vector_add_serial` |
 | `vector_add.cu` | 一线程一元素 + grid-stride;含 block 尺寸四组实验(见性能分析一节) | `make run T=vector_add` |
 | `device_info.cu` | 查询 GPU 属性(SM 数、线程/驻留上限、显存等),配合"硬件执行模型"一节理解 | `make run T=device_info` |
-| `cuda_common.cuh` | 共用错误检查宏 `CUDA_CHECK` / `CUDA_CHECK_LAUNCH` | 被其他文件 include |
+| `cuda_common.cuh` | 共用错误检查宏与计时工具(在**项目根目录**,供所有阶段 include) | 被其他文件 include |
 
 ## 建议阅读顺序
 

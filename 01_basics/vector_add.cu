@@ -8,7 +8,7 @@
 // 编译运行: make run T=vector_add
 #include <stdio.h>
 #include <stdlib.h>
-#include <cuda_runtime.h>
+#include "../cuda_common.cuh"
 
 // 方式一:一线程一元素。要求 grid_size >= (N + block_size - 1) / block_size,
 // 否则下标 i >= grid*block 的元素无人处理。
@@ -55,23 +55,23 @@ typedef struct {
     const char *label;
 } bench_config;
 
-// 运行单组实验:启动 → 计时 → 取回 → 验证 → 打印(带 block_size 标签)
+// 运行单组实验:启动 → 计时(预热1次+测10次平均) → 取回 → 验证 → 打印
 void run_case(bench_config cfg, const float *d_x, const float *d_y,
-              float *d_out, float *h_out, int n, size_t bytes,
-              cudaEvent_t start, cudaEvent_t stop) {
+              float *d_out, float *h_out, int n, size_t bytes) {
     const int grid_size = (n + cfg.block_size - 1) / cfg.block_size;
     cudaMemset(d_out, 0, bytes);
 
-    cudaEventRecord(start);
+    // CUDA_TIME_AVG:预热 1 次 + 测 10 次平均(见 cuda_common.cuh;
+    // 单次有 ±5% 噪声,平均后与 README「性能分析入门」表格可比)。
+    // kernel 重复执行是幂等的:每次都从 d_x/d_y 读、写满 d_out。
+    float ms;
     if (cfg.mode == 0) {
-        vector_add_one_per_thread<<<grid_size, cfg.block_size>>>(d_x, d_y, d_out, n);
+        CUDA_TIME_AVG((vector_add_one_per_thread<<<grid_size, cfg.block_size>>>
+                       (d_x, d_y, d_out, n)), ms, 10);
     } else {
-        vector_add_grid_stride<<<grid_size, cfg.block_size>>>(d_x, d_y, d_out, n);
+        CUDA_TIME_AVG((vector_add_grid_stride<<<grid_size, cfg.block_size>>>
+                       (d_x, d_y, d_out, n)), ms, 10);
     }
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
-    float ms = 0;
-    cudaEventElapsedTime(&ms, start, stop);
 
     // D2H 拷回并校验(cudaMemcpy 隐式同步)
     cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
@@ -105,24 +105,19 @@ int main() {
     cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
 
-    // 计时用的 event(所有实验共用)
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-
     // 3. 四组实验:满载基线 → block 过小 → warp 碎片 → 碎片改善
     bench_config cases[] = {
         {0, 256, "one-per-thread"},
         {1, 16,  "grid-stride"},
         {1, 33,  "grid-stride"},
         {1, 48,  "grid-stride"},
+        {1, 64,  "grid-stride"},
+        {1, 96,  "grid-stride"},
     };
-    for (int c = 0; c < 4; ++c) {
-        run_case(cases[c], d_x, d_y, d_out, h_out, N, bytes, start, stop);
+    for (int c = 0; c < sizeof(cases) / sizeof(cases[0]); ++c) {
+        run_case(cases[c], d_x, d_y, d_out, h_out, N, bytes);
     }
 
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
     cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);
     free(h_x); free(h_y); free(h_out);
     return 0;

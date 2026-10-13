@@ -9,6 +9,7 @@
 // 完成后运行: make run T=thread_grid_2d
 #include <stdio.h>
 #include <cuda_runtime.h>
+#include "../../cuda_common.cuh"
 
 // TODO: 每个 (row, col) 线程在自己的位置打印一行坐标,
 //       格式: "block(%,%) thread(%,%) -> global(%,%)"
@@ -17,9 +18,8 @@ __global__ void print_coords_2d(int rows, int cols) {
     // 在此写代码: 计算 row / col,判断边界,打印
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
-    if (row < rows && col < cols &&
-        row % 4 == 0 && col % 4 == 0) {
-        printf("block(%d,%d) thread(%d,%d) -> global(%d,%d)\n", blockIdx.y, blockIdx.x, threadIdx.y, threadIdx.x, row, col);
+    if (row < rows && col < cols) {
+        printf("block(%d,%d) thread(%d,%d) -> global(%d,%d)\n", blockIdx.x, blockIdx.y, threadIdx.x, threadIdx.y, row, col);
     }
 }
 
@@ -32,12 +32,7 @@ int main() {
     dim3 grid((cols + block.x - 1) / block.x, (rows + block.y - 1) / block.y);
 
     print_coords_2d<<<grid, block>>>(rows, cols);
-    cudaDeviceSynchronize();
-    cudaError_t error = cudaGetLastError();
-    if (error != cudaSuccess) {
-        printf("Error: %s\n", cudaGetErrorString(error));
-        return 1;
-    }
+    CUDA_CHECK_LAUNCH();
 
     // (void)rows; (void)cols;   // 占位,完成后删除
     // printf("thread_grid_2d: not implemented yet\n");

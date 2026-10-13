@@ -7,7 +7,7 @@
 // 对比运行: make run T=vector_add_serial && make run T=vector_add
 #include <stdio.h>
 #include <stdlib.h>
-#include <cuda_runtime.h>
+#include "../cuda_common.cuh"
 
 // 反面教材:单线程 kernel 串行 for 循环
 __global__ void add_serial(const float *x, const float *y, float *out, int n) {
@@ -36,21 +36,13 @@ int main() {
     cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
 
     // 仅计时 kernel(与 vector_add 对比;不含 H2D/D2H)
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
-    cudaEventRecord(start);
-    add_serial<<<1, 1>>>(d_x, d_y, d_out, N);
-    cudaEventRecord(stop);
-    cudaEventSynchronize(stop);
-    float ms = 0;
-    cudaEventElapsedTime(&ms, start, stop);
+    // 注意:语句含逗号时必须整体加括号,否则被当成宏的多个参数
+    float ms;
+    CUDA_TIME((add_serial<<<1, 1>>>(d_x, d_y, d_out, N)), ms);
 
     cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
     printf("vector_add serial 1-thread (N=%d): %.2f ms -- correct but not parallel\n", N, ms);
 
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
     cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);
     free(h_x); free(h_y); free(h_out);
     return 0;

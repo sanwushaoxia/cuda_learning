@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cuda_runtime.h>
+#include "../../cuda_common.cuh"
 
 // TODO: 实现 kernel。提示: 与 vector_add_one_per_thread 几乎相同,多乘一个 a
 __global__ void saxpy_kernel(float a, const float *x, const float *y, float *out, int n) {
@@ -19,6 +20,28 @@ __global__ void saxpy_kernel(float a, const float *x, const float *y, float *out
     for (; i < n; i += stride) {
         out[i] = a * x[i] + y[i];
     }
+}
+
+void run_case(int block_size, float a, const float *d_x, const float *d_y, float *d_out,
+              float *h_out, int n, size_t bytes) {
+    const int grid_size = (n + block_size - 1) / block_size;
+    cudaMemset(d_out, 0, bytes);
+
+    float ms;
+    CUDA_TIME_AVG((saxpy_kernel<<<grid_size, block_size>>>
+        (a, d_x, d_y, d_out, n)), ms, 10);
+    
+    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
+    // 校验:a=2.5, x[i]=i, y[i]=1 → 期望 2.5*i + 1
+    // (float 在 2^20 量级仍可精确表示整数与 2.5*i + 1,可直接比较)
+    int errors = 0;
+    for (int i = 0; i < n; ++i) {
+        if (h_out[i] != a * i + 1.0f) {
+            errors++;
+        }
+    }
+    printf("block=%-4d (N=%d): %.2f ms  %s\n",
+        block_size, n, ms, errors == 0 ? "all elements OK" : "FAILED");
 }
 
 int main() {
@@ -46,31 +69,14 @@ int main() {
     cudaMemcpy(d_x, h_x, bytes, cudaMemcpyHostToDevice);
     cudaMemcpy(d_y, h_y, bytes, cudaMemcpyHostToDevice);
     
-    // TODO: 选择 block_size=256,计算 grid_size 并启动 kernel
-
-    int block_size = 256;
-    int grid_size = (N + block_size - 1) / block_size;
-    saxpy_kernel<<<grid_size, block_size>>>(a, d_x, d_y, d_out, N);
-    
-    // TODO: 取回 h_out,同步
-
-    cudaMemcpy(h_out, d_out, bytes, cudaMemcpyDeviceToHost);
-    cudaDeviceSynchronize();
-
-    // TODO: 验证: h_out[i] 应等于 a * i + 1.0f
-
-    int errors = 0;
-    for (int i = 0; i < N; ++i) {
-        if (h_out[i] != a * i + 1.0f) { errors++; }
+    int blocks[] = {32, 64, 96, 128, 256};
+    for (int c = 0; c < sizeof(blocks) / sizeof(blocks[0]); ++c) {
+        run_case(blocks[c], a, d_x, d_y, d_out, h_out, N, bytes);
     }
-    printf("saxpy: %s\n", errors == 0 ? "all elements OK" : "FAILED");
     
     // TODO: 释放内存
 
     cudaFree(d_x); cudaFree(d_y); cudaFree(d_out);
-
-    // (void)a; (void)h_out;   // 占位,完成后删除
-    // printf("saxpy: not implemented yet\n");
     free(h_x); free(h_y); free(h_out);
     return 0;
 }
